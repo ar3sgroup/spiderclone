@@ -1,0 +1,15 @@
+{
+ "spiderclone": "2.5.0",
+ "start_url": "https://instagram.com",
+ "created": "2026-09-22 15:57:45",
+ "files": {
+  "https://instagram.com": {
+   "rel": "index.html",
+   "type": "page"
+  },
+  "https://instagram.com/data/manifest.json": {
+   "rel": "data/manifest.json",
+   "type": "asset"
+  }
+ }
+}

@@ -1,0 +1,66 @@
+# ---------------------------------------------------------------------------
+# SpiderClone — .gitignore
+# Fichiers générés / jetables à ne jamais versionner.
+# ---------------------------------------------------------------------------
+
+# --- Python ---------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# --- PyInstaller (build du .exe) ------------------------------------------
+build/
+dist/
+pyinstaller_build.log
+*.spec.bak
+
+# NB : spiderclone.spec et spiderclone.bat sont VOLONTAIREMENT suivis
+#      (configuration de build figée et launcher) — ne pas les ignorer.
+
+# --- SpiderClone : sorties de clone (régénérées à chaque clone) -----------
+# Le dossier du clone porte le nom de l'hôte cloné (ex. « facebook.com »,
+# « exemple.fr »). Ajoutez ici les domaines que vous ne voulez pas suivre,
+# ou ignorez-les tous :
+f_smoke_site/
+# (motif générique possible : */index.html  — à n'activer que si vous ne
+#  voulez JAMAIS suivre de clones ; sinon listez les dossiers explicitement.)
+
+# Rapports et captures générés DANS le dossier du clone :
+spiderclone_report.txt
+captures/
+
+# --- Tests : artefacts jetables --------------------------------------------
+tests/__pycache__/
+*.log
+
+# --- Secrets / environnement ----------------------------------------------
+.env
+.env.*
+!.env.example
+.dev.vars
+*.pem
+*.key
+id_rsa
+id_ed25519
+
+# --- OS / édition ----------------------------------------------------------
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+Desktop.ini
+.DS_Store
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+*.iml
