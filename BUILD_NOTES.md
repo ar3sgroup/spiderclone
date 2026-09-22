@@ -242,3 +242,70 @@ spec.
   sur la session, defaut `{}`, flags `--cf-*` et choice `cloudflare-named`).
 - E2E (`tests/e2e_test.py`) : scenario `--serve-dir OUT --port P` =>
   GET `/index.html` puis route inconnue => fallback index.html (SPA).
+
+---
+
+## 6. Correctif v2.5.1 — méthodes d'écriture (mock API JSON)
+
+Contexte : sur le clone Instagram servi localement, la console navigateur
+remontait des erreurs intermittentes :
+- `501 Unsupported method ('POST')` sur `POST /ajax/bz`, `POST /api/graphql`
+  et `POST /ajax/bulk-route-definitions/` — `CloneHandler` n'implémentait
+  aucune méthode d'écriture ; `SimpleHTTPRequestHandler` répondait 501 avec
+  un corps HTML, ce qui faisait échouer le parseur JSON du JS (Instagram)
+  : `Unexpected token '<', "<!DOCTYPE "... is not valid JSON`.
+- Variabilité « des fois » : le JS réel d'Instagram (chargé depuis
+  `static.cdninstagram.com`, hors périmètre de clone) ne boote que s'il est
+  accessible ; sans CDN, aucun appel API → aucune erreur.
+
+Correctif (commit v2.5.1, `cs_serve.py`) :
+- `CloneHandler.do_POST/do_PUT/do_PATCH/do_DELETE` → `_answer_write_method()` :
+  1. asset du clone présent pour le chemin (suffixe `.json` essayé en plus,
+     les endpoints API sont clonés en `api/x.json` par la v2.4.0) → servi ;
+  2. sinon mock JSON `{}` (200 `application/json`, `mock_api=True` par défaut) ;
+  3. `mock_api=False` → 501 explicite (comportement d'origine conservé).
+- `do_OPTIONS` → 204 + en-tête `Allow` (pré-vol CORS).
+- `_drain_body()` → lit le corps (`Content-Length`, borné à 1 Mo) pour ne pas
+  désynchroniser le keep-alive.
+- Attributs de classe `mock_api = True`, `mock_payload = b"{}"`.
+- Version : `cs_config.VERSION = "2.5.1"`.
+
+Limites restantes (documentées) :
+- les appels ABSOLUS hors périmètre (`https://www.facebook.com/ig_xsite_user_info/`,
+  `https://static.cdninstagram.com/...`) restent bloqués côté navigateur
+  (CORS) — non corrigeable côté serveur de clone ; re-cloner avec
+  `--include-subdomains` pour les ramener dans le périmètre ;
+- le mock ne reproduit pas la logique métier de l'API (pas de persistance).
+
+Tests :
+- `tests/test_units.py` : +3 tests `TestServe` (mock JSON 200, asset cloné
+  servi, 501 si `mock_api=False`) et `test_version_251` → **142 tests OK** ;
+- `tests/e2e_test.py` : assertion de version rapport passée à 2.5.1 → E2E OK ;
+- vérification live sur le clone `instagram.com/` : POST `/ajax/bz`,
+  `/api/graphql`, `/ajax/bulk-route-definitions/` → 200 `application/json`
+  `{}` ; DELETE/PUT/PATCH → 200 ; OPTIONS → 204 ; GET `/index.html` intact
+  (412 537 octets).
+
+## 7. Correctif v2.5.1 — XMLParsedAsHTMLWarning (pages XML/XHTML)
+
+Contexte : lors d'un clone (Instagram), la console affichait
+`cs_crawl.py:553: XMLParsedAsHTMLWarning: It looks like you're using an HTML
+parser to parse an XML document.` — des pages XML (flux RSS, sitemaps, XHTML
+servi avec un Content-Type HTML) sont classées comme pages par
+`looks_like_html`/`is_html_url` puis passées dans
+`BeautifulSoup(content, "html.parser")`, qui émet le warning (bs4 ≥ 4.12).
+
+Correctif (commit v2.5.1, `cs_crawl.py`) :
+- helper `_parse_markup(content)` : construit le BeautifulSoup sous
+  `warnings.catch_warnings()` + `filterwarnings("ignore", category=
+  XMLParsedAsHTMLWarning)` — le parsing reste en mode HTML (la réécriture
+  d'attributs `cs_rewrite` fonctionne pour HTML et XHTML, les deux sont des
+  variantes markup ; pas de dépendance lxml ajoutée) ;
+- les 3 points de construction sont passés par le helper : `_process_page`
+  (553), `_scan_page_for_assets` (677) et le scan d'intégrité (749).
+
+Tests :
+- `tests/test_units.py` : +3 tests `TestParseMarkup` (XML via `_process_page`
+  → page sauvegardée + aucun warning ; XML via `_scan_page_for_assets` ;
+  helper direct) → **145 tests OK** ;
+- `tests/e2e_test.py` : E2E OK (RC=0, `--serve-dir v2.5.1`).

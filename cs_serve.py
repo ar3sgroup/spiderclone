@@ -72,10 +72,19 @@ class CloneHandler(http.server.SimpleHTTPRequestHandler):
     sur index.html si le clone en possède un : les sites à routage
     client-side restent navigables derrière le tunnel. Une ressource
     manquante AVEC extension (ex: /logo.png) reste un 404 normal.
+
+    v2.5.1 — méthodes d'écriture (POST/PUT/PATCH/DELETE) : les SPA font des
+    appels API relatifs (ex: /ajax/bz, /api/graphql) qui tombaient en 501
+    « Unsupported method » (corps HTML), faisant échouer le parseur JSON du
+    site. Désormais : si un asset du clone correspond au chemin (endpoint
+    API cloné via la v2.4.0), il est servi ; sinon une réponse JSON vide est
+    renvoyée (mock_api=True) pour que le JS ne casse pas sur un corps HTML.
     """
 
     spa_root = None
     verbose = False
+    mock_api = True
+    mock_payload = b"{}"
 
     def log_message(self, fmt, *args):
         if self.verbose:
@@ -96,6 +105,77 @@ class CloneHandler(http.server.SimpleHTTPRequestHandler):
                 and os.path.isfile(os.path.join(self.spa_root, "index.html"))):
             self.path = "/index.html"
         return super().send_head()
+
+    def _drain_body(self):
+        """Lit le corps de la requête (keep-alive : ne pas laisser de bytes
+        en attente dans la connexion avant de répondre)."""
+        try:
+            length = int(self.headers.get("Content-Length", 0) or 0)
+        except (TypeError, ValueError):
+            length = 0
+        if length > 0:
+            self.rfile.read(min(length, 1 << 20))
+
+    def _answer_write_method(self):
+        """Réponse aux méthodes d'écriture (POST/PUT/PATCH/DELETE).
+
+        Priorité : 1) asset du clone présent pour ce chemin (endpoint API
+        cloné) ; 2) mock JSON (mock_api=True) ; 3) 501 explicite.
+        """
+        self._drain_body()
+        path = self.translate_path(self.path)
+        # Les endpoints API clonés sont stockés avec un suffixe .json
+        # (ex: /api/graphql -> api/graphql.json) : on essaie les deux.
+        candidates = [path]
+        if not os.path.splitext(path)[1]:
+            candidates.append(path + ".json")
+        for cand in candidates:
+            if os.path.isfile(cand):
+                try:
+                    with open(cand, "rb") as f:
+                        body = f.read()
+                except OSError:
+                    body = b""
+                self.send_response(200)
+                self.send_header("Content-Type", self.guess_type(cand))
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+        if self.mock_api:
+            if self.verbose:
+                print("   serve mock %s %s -> %r"
+                      % (self.command, self.path, self.mock_payload),
+                      file=sys.stderr)
+            body = self.mock_payload
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        self.send_error(501, f"Unsupported method ({self.command!r})")
+
+    def do_POST(self):
+        self._answer_write_method()
+
+    def do_PUT(self):
+        self._answer_write_method()
+
+    def do_PATCH(self):
+        self._answer_write_method()
+
+    def do_DELETE(self):
+        self._answer_write_method()
+
+    def do_OPTIONS(self):
+        """Pré-vol CORS éventuel : 204 avec les méthodes acceptées."""
+        self._drain_body()
+        self.send_response(204)
+        self.send_header("Allow",
+                         "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
 
 def find_free_port(preferred: int = DEFAULT_PORT) -> int:

@@ -3,9 +3,12 @@
 Clone complet d'un site web en local : pages HTML, CSS, JavaScript, images,
 polices, vidéos… avec réécriture des liens pour une navigation hors-ligne.
 
-Version **2.5.0** — publication : serveur HTTP local du clone et exposition
+Version **2.5.1** — publication : serveur HTTP local du clone et exposition
 au public via ngrok, un Quick Tunnel Cloudflare ou un tunnel nommé à domaine
-fixe (repli SPA, port choisi, publication d'un dossier déjà cloné).
+fixe (repli SPA, port choisi, publication d'un dossier déjà cloné). Les
+appels API relatifs des SPA (POST/PUT/PATCH/DELETE, ex. `/ajax/bz`,
+`/api/graphql`) sont servis (asset cloné) ou répondus par un JSON vide au
+lieu d'un 501 qui cassait le parseur JS.
 
 ## Fonctionnalités
 
@@ -260,14 +263,27 @@ spiderclone/
 ├── cs_render.py            # Rendu JavaScript via Playwright
 ├── cs_rewrite.py           # Réécriture des liens (HTML, CSS, JS)
 ├── cs_crawl.py             # Orchestrateur (SiteClone) : file BFS, manifest…
-├── cs_serve.py             # v2.5.0 : serveur local + tunnels (ngrok, Cloudflare,
-│                          #          nommé à domaine fixe, repli local)
+├── cs_serve.py             # v2.5.1 : serveur local + tunnels (ngrok, Cloudflare,
+│                          #          nommé à domaine fixe, repli SPA, mock API)
 ├── tests/
-│   ├── test_units.py       # 138 tests unitaires (aucun réseau)
+│   ├── test_units.py       # 145 tests unitaires (aucun réseau)
 │   ├── test_server.py      # Serveur HTTP local journalisant les requêtes
 │   └── e2e_test.py         # Test E2E : clone d'un site local via la CLI
 └── requirements.txt
 ```
+
+## Nouveautés v2.5.1
+
+- **Méthodes d'écriture servies** : POST/PUT/PATCH/DELETE et OPTIONS sont
+  gérés par le serveur. Priorité : si un asset du clone correspond au chemin
+  (endpoint API cloné, suffixe `.json` essayé en plus), il est servi ; sinon
+  une réponse **JSON vide `{}`** (200, `application/json`) est renvoyée — les
+  SPA (ex. Instagram) qui appellent `/ajax/bz`, `/api/graphql`, etc. ne
+  reçoivent plus un corps HTML `501 Unsupported method` qui faisait échouer
+  `JSON.parse` dans le navigateur.
+- OPTIONS répond 204 avec l'en-tête `Allow` (pré-vol CORS local).
+- Corps des requêtes d'écriture drainé (lecture bornée à 1 Mo) pour ne pas
+  casser le keep-alive.
 
 ## Nouveautés v2.5.0
 
@@ -360,7 +376,7 @@ Bugs corrigés par rapport à la v2.0.0 :
 ## Tests
 
 ```bash
-# Tests unitaires (138 tests, aucun réseau)
+# Tests unitaires (145 tests, aucun réseau)
 python tests/test_units.py
 
 # Test E2E : site local auto-généré, serveur HTTP, clone via la CLI
@@ -374,10 +390,17 @@ specifiers npm dans le JS, le lien externe laissé tel quel, l'absence de
 double GET (chaque URL demandée une seule fois, via le journal du serveur),
 le mode interactif (`copy <url>` + `exit`) et, pour la v2.5.0, la
 publication `--serve-dir` (index.html servi localement + repli SPA ; les
-tunnels ngrok/Cloudflare sont couverts par les parseurs unitaires).
+tunnels ngrok/Cloudflare sont couverts par les parseurs unitaires) et, pour
+la v2.5.1, le mock JSON des POST API.
 
 ## Limites
 
+- Le serveur répond **simplement** aux méthodes d'écriture : un asset cloné
+  est servi, sinon un JSON `{}` factice — pas de persistance ni de logique
+  métier. Les appels API **absolus** vers des domaines hors périmètre
+  (ex. `static.cdninstagram.com`, `www.facebook.com`) restent bloqués par le
+  CORS du navigateur : re-clonez le site avec `--include-subdomains` pour
+  ramener ces hôtes dans le périmètre.
 - Le clone est **statique** : les contenus chargés dynamiquement ne sont
   capturés qu'avec `--render` (et uniquement le HTML final, pas les requêtes
   réseau du navigateur).

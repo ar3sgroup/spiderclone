@@ -14,13 +14,14 @@ import re
 import sys
 import time
 import urllib.parse
+import warnings
 import zipfile
 from collections import Counter, deque
 from concurrent import futures as cf
 from pathlib import Path
 
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 
 from cs_config import (ADAPTIVE_MAX_DELAY, ADAPTIVE_MIN_DELAY, ADAPTIVE_RATIO,
                        CSS_URL_RE, DEFAULT_TIMEOUT, LAZY_ATTRS, MANIFEST_NAME,
@@ -45,6 +46,17 @@ PNG_PLACEHOLDER = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
 SVG_PLACEHOLDER = ('<svg xmlns="http://www.w3.org/2000/svg" '
                    'width="1" height="1" viewBox="0 0 1 1"/>')
+
+
+def _parse_markup(content):
+    """Construit un BeautifulSoup(html.parser) sans émettre
+    XMLParsedAsHTMLWarning (pages XML/XHTML légitimes : flux RSS,
+    sitemaps, XHTML servis avec un Content-Type HTML). Le parsing
+    reste en mode HTML : la réécriture d'attributs fonctionne pour
+    les deux. Le warning est filtré, pas le document."""
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
+        return BeautifulSoup(content, "html.parser")
 
 
 class SiteClone:
@@ -550,7 +562,7 @@ class SiteClone:
             self._process_page_raw(content, url, depth, rel)
             return
 
-        soup = BeautifulSoup(content, "html.parser")
+        soup = _parse_markup(content)
         self.rewriter.rewrite_html(soup, url, depth)
 
         enc = soup.original_encoding or "utf-8"
@@ -674,7 +686,7 @@ class SiteClone:
             text, _enc = decode_any(content)
             self.rewriter.rewrite_page_raw(text, url, depth)
         else:
-            soup = BeautifulSoup(content, "html.parser")
+            soup = _parse_markup(content)
             self.rewriter.rewrite_html(soup, url, depth)
         self.stats["pages_scanned"] += 1
 
@@ -746,7 +758,7 @@ class SiteClone:
             except OSError:
                 continue
             if p.suffix.lower() in (".html", ".htm"):
-                soup = BeautifulSoup(data, "html.parser")
+                soup = _parse_markup(data)
                 for node in soup.find_all(True):
                     for attr, val in node.attrs.items():
                         al = attr.lower()

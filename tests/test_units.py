@@ -15,6 +15,7 @@ import sys
 import tempfile
 import time
 import unittest
+import warnings
 import shutil
 import requests
 from unittest import mock
@@ -665,8 +666,8 @@ class TestCLI(unittest.TestCase):
     """Options v2.2.0 : --no-banner / --no-color, version ; flags v2.4.0 et
     v2.5.0 (--serve / --tunnel / --port / --serve-dir)."""
 
-    def test_version_250(self):
-        self.assertEqual(VERSION, "2.5.0")
+    def test_version_251(self):
+        self.assertEqual(VERSION, "2.5.1")
 
     def test_flags_parsed(self):
         args = build_parser().parse_args(
@@ -834,6 +835,55 @@ class TestServe(unittest.TestCase):
         self.assertIn("sous", r.text)
         stop(server, None)
         shutil.rmtree(d, ignore_errors=True)
+
+    def test_post_mock_json(self):
+        """v2.5.1 : un POST API inconnu renvoie un JSON vide (plus de 501)."""
+        server = serve_directory(self.tmp, 0)
+        port = server.server_address[1]
+        r = requests.post(f"http://127.0.0.1:{port}/ajax/bz?__a=1", data="x",
+                          timeout=5)
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("application/json", r.headers["Content-Type"])
+        self.assertEqual(r.json(), {})
+        stop(server, None)
+
+    def test_post_serves_cloned_asset(self):
+        """v2.5.1 : un POST vers un endpoint cloné sert l'asset (absent auparavant)."""
+        api_dir = Path(self.tmp) / "api"
+        api_dir.mkdir(parents=True, exist_ok=True)
+        (api_dir / "graphql.json").write_text(
+            '{"data":{"ok":true}}', "utf-8")
+        server = serve_directory(self.tmp, 0)
+        port = server.server_address[1]
+        r = requests.post(f"http://127.0.0.1:{port}/api/graphql", data="{}",
+                          timeout=5)
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json(), {"data": {"ok": True}})
+        stop(server, None)
+
+    def test_post_501_when_mock_disabled(self):
+        """v2.5.1 : mock_api=False restaure le 501 explicite."""
+        from cs_serve import CloneHandler
+        old = CloneHandler.mock_api
+        CloneHandler.mock_api = False
+        try:
+            server = serve_directory(self.tmp, 0)
+            port = server.server_address[1]
+            r = requests.post(f"http://127.0.0.1:{port}/ajax/bz", data="x",
+                              timeout=5)
+            self.assertEqual(r.status_code, 501)
+            stop(server, None)
+        finally:
+            CloneHandler.mock_api = old
+
+    def test_options_preflight(self):
+        """v2.5.1 : OPTIONS répond 204 avec la liste des méthodes."""
+        server = serve_directory(self.tmp, 0)
+        port = server.server_address[1]
+        r = requests.options(f"http://127.0.0.1:{port}/ajax/bz", timeout=5)
+        self.assertEqual(r.status_code, 204)
+        self.assertIn("POST", r.headers.get("Allow", ""))
+        stop(server, None)
 
     def test_extract_ngrok_url(self):
         js = ('{"tunnels":[{"public_url":"http://abc.ngrok-free.app"},'
@@ -1156,6 +1206,52 @@ class TestApiEndpoints(unittest.TestCase):
         self.assertEqual(
             cloner._api_local_path("http://example.com/api/data.json"),
             "api/data.json")
+
+
+class TestParseMarkup(unittest.TestCase):
+    """v2.5.1 : pages XML/XHTML traitées sans XMLParsedAsHTMLWarning."""
+
+    def _cloner(self, **kw):
+        return make_cloner(**kw)
+
+    XML = (b'<?xml version="1.0" encoding="UTF-8"?>\n'
+           b'<rss version="2.0"><channel><title>Flux</title>'
+           b'<link>http://example.com/</link>'
+           b'<item><title>Item</title>'
+           b'<link>http://example.com/i</link></item>'
+           b'</channel></rss>\n')
+
+    def _xml_warns(self, fn):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            fn()
+        from bs4 import XMLParsedAsHTMLWarning
+        return [w for w in caught
+                if issubclass(w.category, XMLParsedAsHTMLWarning)]
+
+    def test_process_page_xml_no_warning(self):
+        cloner = self._cloner()
+        warns = self._xml_warns(
+            lambda: cloner._process_page(self.XML,
+                                         "http://example.com/feed.xml", 1))
+        self.assertEqual(warns, [])
+        self.assertEqual(cloner.pages["http://example.com/feed.xml"],
+                         "feed.xml")
+        self.assertTrue((cloner.out_dir / "feed.xml").is_file())
+        self.assertEqual(cloner.stats["pages"], 1)
+
+    def test_scan_page_xml_no_warning(self):
+        cloner = self._cloner(only_assets=True)
+        warns = self._xml_warns(
+            lambda: cloner._scan_page_for_assets(
+                self.XML, "http://example.com/feed.xml", 1))
+        self.assertEqual(warns, [])
+        self.assertEqual(cloner.stats["pages_scanned"], 1)
+
+    def test_helper_xml_no_warning(self):
+        from cs_crawl import _parse_markup
+        warns = self._xml_warns(lambda: _parse_markup(self.XML))
+        self.assertEqual(warns, [])
 
 
 class TestOnlyModes(unittest.TestCase):

@@ -8,7 +8,7 @@ Constantes, regex et tables de reecriture de SpiderClone (attributs porteurs d'U
 
 import re
 
-VERSION = "2.5.0"
+VERSION = "2.5.1"
 USER_AGENT = f"spiderclone/{VERSION} (outil de clonage local)"
 DEFAULT_TIMEOUT = 25
 MAX_RETRIES = 3

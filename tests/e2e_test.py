@@ -218,8 +218,8 @@ def main() -> int:
             failures.append("spiderclone_report.txt absent")
         else:
             rt = report.read_text(encoding="utf-8", errors="replace")
-            if "2.5.0" not in rt:
-                failures.append("rapport : version 2.5.0 absente")
+            if "2.5.1" not in rt:
+                failures.append("rapport : version 2.5.1 absente")
             if "/always429.css" not in rt:
                 failures.append("rapport : always429.css absent de la liste "
                                 "des non téléchargées")
@@ -354,7 +354,7 @@ def main() -> int:
     shutil.rmtree(tmp, ignore_errors=True)
     print("E2E OK : tous les fichiers clonés, liens réécrits, aucun double "
           "GET, 2e passe/placeholders/rapport/API/modes v2.4.0 et "
-          "publication --serve-dir v2.5.0 validés.")
+          "publication --serve-dir v2.5.1 validés.")
     return 0
 
 
